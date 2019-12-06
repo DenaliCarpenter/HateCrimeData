@@ -1,10 +1,11 @@
-# install.packages("gganimate")
-# install.packages("ggforce")
-# install.packages("gifski")
-# install.packages("png")
-# install.packages("lubridate")
-# install.packages("zoo")
-# install.packages("git")
+install.packages("Rtools")
+install.packages("gganimate")
+install.packages("ggforce")
+install.packages("gifski")
+install.packages("png")
+install.packages("lubridate")
+install.packages("zoo")
+install.packages("git")
 
 library(gganimate)
 library(ggforce)
@@ -19,12 +20,15 @@ library(tidyverse)
 library(lubridate)
 library(zoo)
 
-
+#downloading zipfile containing data, extracting, and downloading
 #data from https://crime-data-explorer.fr.cloud.gov/downloads-and-docs
+temp <- tempfile()
+download.file("http://s3-us-gov-west-1.amazonaws.com/cg-d4b776d0-d898-4153-90c8-8336f86bdfec/hate_crime_2017.zip", temp)
+unzip("http://s3-us-gov-west-1.amazonaws.com/cg-d4b776d0-d898-4153-90c8-8336f86bdfec/hate_crime_2017.zip")
+data <- read.csv(unz(temp, "hate_crime_2017.csv"))
 
-#http://s3-us-gov-west-1.amazonaws.com/cg-d4b776d0-d898-4153-90c8-8336f86bdfec/hate_crime_2017.zip
 
-data <- read.csv("Hate Crime Data.csv")
+#Mutating and Cleaning the INCIDENT_DATE variable
 data$INCIDENT_DATE <- as.Date(data$INCIDENT_DATE, "%d-%b-%y")
 data <- data %>%
   dplyr::mutate(year = lubridate::year(INCIDENT_DATE), 
@@ -37,11 +41,11 @@ data <- mutate(data, Month_Year = paste(data$month, "-", data$year))
 data$Month_Year <- str_replace(data$Month_Year, " ", "")
 data$Month_Year <- str_replace(data$Month_Year, " ", "")
 data$Month_Year <- as.yearmon(data$Month_Year, "%m-%Y")
-View(data)
 
 
 
 
+#creating new variables
 anti_black <- as.data.frame(table(data$Month_Year[grep("Anti-Black or African American", data$BIAS_DESC)]))
 anti_black <- mutate(anti_black, race_ethnicity = "Black")
 
@@ -63,70 +67,52 @@ anti_arab <- mutate(anti_arab, race_ethnicity = "Arab")
 anti_asian <- as.data.frame(table(data$Month_Year[grep("Anti-Asian", data$BIAS_DESC)]))
 anti_asian <- mutate(anti_asian, race_ethnicity = "Asian")
 
-hate <- full_join(anti_arab, anti_asian)
+hate <- full_join(anti_white, anti_asian)
 
 hate <- full_join(hate, anti_black)
 
-hate <- full_join(hate, anti_islamic)
 
-hate <- full_join(hate, anti_jewish)
+hate_full <- full_join(anti_white, anti_asian)
 
-hate <- full_join(hate, anti_latinx)
+hate_full <- full_join(hate, anti_black)
 
-hate <- full_join(hate, anti_white)
+hate_full <- full_join(hate, anti_islamic)
 
-View(hate)
+hate_full <- full_join(hate, anti_jewish)
 
+hate_full <- full_join(hate, anti_latinx)
 
+hate_full <- full_join(hate, anti_arab)
+
+#more cleaining of date
 hate$Var1 <- as.Date(as.yearmon(hate$Var1, "%b %Y"))
 
-p <- ggplot(data = hate,
+hate_full$Var1 <- as.Date(as.yearmon(hate_full$Var1, "%b %y"))
+
+staticLinePlot <- ggplot(data = hate,
        aes(x = Var1, y = Freq, group = race_ethnicity, color = factor(race_ethnicity))) +
   geom_line() +
-  geom_vline(xintercept = as.Date("2015-6-01")) +
   labs(x = "Date", y = "Frequency of Hate Crimes") +
-  theme(legend.position = "top", legend.title = element_blank())
+  scale_color_manual(values = c("green3", "darkmagenta", "dodgerblue")) +
+  theme(axis.text.y = element_blank(), axis.ticks = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), legend.title = element_blank())
 
-
-
-
-
-
-
-p <- p +
+animateLinePlot <- staticLinePlot +
   geom_point() +
   transition_reveal(Var1)
+
+animate(animateLinePlot, renderer = gifski_renderer("HateCrimeLine.gif"))
 
 data$STATE_ABBR <- as.factor(data$STATE_ABBR)
 
 
-hate_new <- hate %>%
+hate_new <- hate_full %>% 
   dplyr::mutate(month = lubridate::month(Var1), 
                 year = lubridate::year(Var1))
 
 agg_sum <- aggregate(hate_new[,2], by = list(hate_new$race_ethnicity, hate_new$year), sum)
-
-View(agg_sum)
-
 hate_final <- as.data.frame(agg_sum)
-
 colnames(hate_final) <- c("Race_Ethnicity", "Year", "Total")
-
-View(hate_final)
-
-#Constructing a static bar chart
-
-staticplot <- ggplot(hate_final, aes(Race_Ethnicity, Total, 
-                                       fill = as.factor(Race_Ethnicity), color = as.factor(Race_Ethnicity))) +
-  geom_col()
-
-anim <- staticplot + 
-  transition_states(Year, transition_length = 1, state_length = 1) +
-  labs(title = 'Hate Crimes Per Year : {closest_state}')
-#+ 
-#  view_follow(fixed_y = FALSE)
-
-#animate(anim, 1000, fps = 60, width = 1200, height = 1000, renderer = gifski_renderer("gganim1.gif"))
 
 hate_adjust <- filter(hate_final, Race_Ethnicity == "Black" | Race_Ethnicity == "White" | Race_Ethnicity == "Asian")
 
@@ -160,10 +146,8 @@ hate_adjust$std_total[hate_adjust$Year > 2004 & hate_adjust$Year <= 2010 & hate_
 
 hate_adjust$std_total <- format(hate_adjust$std_total, scientific = FALSE)
 
-View(hate_adjust)
 
-
-staticplot2 <- ggplot(hate_adjust, aes(Race_Ethnicity, std_total, 
+staticBar <- ggplot(hate_adjust, aes(Race_Ethnicity, std_total, 
                                      fill = as.factor(Race_Ethnicity))) +
   geom_col(show.legend = FALSE) + 
   scale_fill_manual(values = c("darkmagenta", "dodgerblue", "green3")) +
@@ -173,14 +157,9 @@ staticplot2 <- ggplot(hate_adjust, aes(Race_Ethnicity, std_total,
   ylab("Hate Crimes by Population Size")
   
 
-#, color = as.factor(Race_Ethnicity
-
-anim2 <- staticplot2 + 
+animateBar <- staticBar + 
   transition_states(Year, transition_length = 1, state_length = 1) +
   labs(title = 'Hate Crimes Per Year : {closest_state}')
-#+ 
-#  view_follow(fixed_y = FALSE)
 
-animate(anim2, 1000, fps = 60, width = 1200, height = 1000, renderer = gifski_renderer("HateCrime.gif"))
 
-animate(anim2, renderer = gifski_renderer("HateCrime.gif"))
+animate(animateBar, renderer = gifski_renderer("HateCrime.gif"))
